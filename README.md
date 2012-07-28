@@ -96,12 +96,12 @@ You can also specify default reply headers for all responses like this:
 
 ## HTTP Verbs
 
-Nock supports any HTTP verb, and it has convenience methods for the GET, POST, PUT and DELETE HTTP verbs.
+Nock supports any HTTP verb, and it has convenience methods for the GET, POST, PUT, HEAD and DELETE HTTP verbs.
 
 You can intercept any HTTP verb using `.intercept(path, verb [, requestBody [, options]])`:
 
     scope('http://my.domain.com')
-      .intercept('/path', 'HEAD')
+      .intercept('/path', 'PATCH')
       .reply(304);
 
 ## Support for HTTP and HTTPS
@@ -113,7 +113,7 @@ By default nock assumes HTTP. If you need to use HTTPS you can specify the `http
 
 ## Non-standard ports
 
-If you use HTTPS and port 80 or HTTPS and port 443, don't specify the port in the scope. Otherwise, you should specify the port like this:
+You are able to specify a non-standard port like this:
 
     var scope = nock('http://my.server.com:8081')
       ...
@@ -236,6 +236,14 @@ Nock can log matches if you pass in a log function like this:
 You can restore the HTTP interceptor to the normal unmocked behaviour by calling:
 
     nock.restore();
+
+# Turning Nock Off (experimental!)
+
+You can bypass Nock completely by setting `NOCK_OFF` environment variable to `"true"`.
+
+This way you can have your tests hit the real servers just by switching on this environment variable.
+
+    $ NOCK_OFF=true node my_test.js
 
 # Recording
 

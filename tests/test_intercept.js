@@ -6,7 +6,6 @@ var events  = require('events');
 var tap     = require('tap');
 var mikealRequest = require('request');
 
-
 tap.test("get gets mocked", function(t) {
   var dataCalled = false
   
@@ -107,6 +106,63 @@ tap.test("post", function(t) {
    req.end();
 });
 
+
+
+tap.test("post with empty response body", function(t) {
+  var scope = nock('http://www.google.com')
+     .post('/form')
+     .reply(200);
+
+   var req = http.request({
+       host: "www.google.com"
+     , method: 'POST'
+     , path: '/form'
+     , port: 80
+   }, function(res) {
+
+     t.equal(res.statusCode, 200);
+     res.on('end', function() {
+       scope.done();
+       t.end();
+     });
+     res.on('data', function(data) {
+       t.fail("No body should be returned")
+     });
+
+   });
+   req.end();
+});
+
+tap.test("post, lowercase", function(t) {
+  var dataCalled = false;
+  
+  var scope = nock('http://www.google.com')
+     .post('/form')
+     .reply(200, "OK!");
+
+   var req = http.request({
+       host: "www.google.com"
+     , method: 'post'
+     , method: 'POST'
+     , path: '/form'
+     , port: 80
+   }, function(res) {
+
+     t.equal(res.statusCode, 200);
+     res.on('end', function() {
+       t.notOk(dataCalled);
+       scope.done();
+       t.end();
+     });
+     res.on('data', function(data) {
+       dataCalled = true;
+       t.end();
+     });
+   });
+
+   req.end();
+});
+
 tap.test("get with reply callback", function(t) {
   var scope = nock('http://www.google.com')
      .get('/')
@@ -157,6 +213,38 @@ tap.test("post with reply callback, uri, and request body", function(t) {
 
   req.write(input);
   req.end();
+});
+
+tap.test("reply with callback and filtered path and body", function(t) {
+  var noPrematureExecution = false;
+
+  var scope = nock('http://www.realcallback.com')
+     .filteringPath(/.*/, '*')
+     .filteringRequestBody(/.*/, '*')
+     .post('*', '*')
+     .reply(200,  function(uri, body) {
+         t.assert(noPrematureExecution);
+         return ['OK', uri, body].join(' ');
+      });
+
+  var req = http.request({
+     host: "www.realcallback.com"
+    , method: 'POST'
+    , path: '/original/path'
+    , port: 80
+  }, function(res) {
+   t.equal(res.statusCode, 200);
+   res.on('end', function() {
+     scope.done();
+     t.end();
+   });
+   res.on('data', function(data) {
+     t.equal(data.toString(), 'OK /original/path original=body' , 'response should match');
+   });
+  });
+
+  noPrematureExecution = true;
+  req.end('original=body');
 });
 
 tap.test("isDone", function(t) {
@@ -343,6 +431,30 @@ tap.test("header manipulation", function(t) {
   t.notOk(req.getHeader('X-Custom-Header'), 'Custom header was not removed');
 
   req.end();
+});
+
+tap.test("head", function(t) {
+  var dataCalled = false;
+  
+  var scope = nock('http://www.google.com')
+     .head('/form')
+     .reply(201, "OK!");
+
+   var req = http.request({
+       host: "www.google.com"
+     , method: 'HEAD'
+     , path: '/form'
+     , port: 80
+   }, function(res) {
+
+     t.equal(res.statusCode, 201);
+     res.on('end', function() {
+       scope.done();
+       t.end();
+     });
+   });
+
+   req.end();
 });
 
 tap.test("body data is differentiating", function(t) {
@@ -538,6 +650,57 @@ tap.test("reply with file", function(t) {
   });
   
   req.end();
+  
+});
+
+tap.test("reply with file and pipe response", function(t) {
+  var scope = nock('http://www.files.com')
+    .get('/')
+    .replyWithFile(200, __dirname + '/../assets/reply_file_1.txt')
+
+  var req = http.get({
+      host: "www.files.com"
+    , path: '/'
+    , port: 80
+  }, function(res) {
+    var str = '';
+    var fakeStream = new(require('stream').Stream);
+    fakeStream.writable = true;
+
+    fakeStream.write = function(d) {
+      str += d;
+    };
+
+    fakeStream.end = function() {
+      t.equal(str, "Hello from the file!", "response should match");
+      t.end();
+    };
+
+    res.pipe(fakeStream);
+    res.setEncoding('utf8');
+    t.equal(res.statusCode, 200);
+    
+  });
+  
+});
+
+tap.test("reply with file with mikeal/request", function(t) {
+  var scope = nock('http://www.files.com')
+    .get('/')
+    .replyWithFile(200, __dirname + '/../assets/reply_file_1.txt')
+
+  var options = { uri: 'http://www.files.com/', onResponse: true };
+  mikealRequest('http://www.files.com/', function(err, res, body) {
+    if (err) {
+      throw err;
+    }
+
+    res.setEncoding('utf8');
+    t.equal(res.statusCode, 200);
+
+    t.equal(body, "Hello from the file!", "response should match");
+    t.end();
+  });
   
 });
 
@@ -1236,24 +1399,27 @@ tap.test("default reply headers work", function(t) {
 });
 
 tap.test('clean all works', function(t) {
-  var scope = nock('http://clean.all.coz')
-    .get('/')
+  var scope = nock('http://amazon.com')
+    .get('/nonexistent')
     .reply(200);
 
-  nock.cleanAll();
+  var req = http.get({host: 'amazon.com', path: '/nonexistent'}, function(res) {
+    t.assert(res.statusCode === 200, "should mock before cleanup");
 
-  var req = http.get({host: 'clean.all.coz', path: '/'});
-  req.on('error', function(e) {
-    t.equal(e.code, 'ENOTFOUND');
-    t.end();
+    nock.cleanAll();
+
+    var req = http.get({host: 'amazon.com', path: '/nonexistent'}, function(res) {
+      t.assert(res.statusCode !== 200, "should clean up properly");
+      t.end();
+    }).on('error', function(err) {
+      t.end();
+    });
   });
-  req.end()
-});
 
+});
 
 tap.test('username and password works', function(t) {
   var scope = nock('http://passwordyy.com')
-    .log(console.log)
     .get('/')
     .reply(200, "Welcome, username");
 
@@ -1274,7 +1440,6 @@ tap.test('works with mikeal/request and username and password', function(t) {
       .reply(200, "Welcome, username");
 
   mikealRequest({uri: 'http://username:password@passwordyyyyy.com/abc', log:true}, function(err, res, body) {
-    console.log(err);
     t.ok(! err, 'error');
     t.ok(scope.isDone());
     t.equal(body, "Welcome, username");
@@ -1285,7 +1450,6 @@ tap.test('works with mikeal/request and username and password', function(t) {
 
 tap.test('different ports work works', function(t) {
   var scope = nock('http://abc.portyyyy.com:8081')
-    .log(console.log)
     .get('/pathhh')
     .reply(200, "Welcome, username");
 
@@ -1301,15 +1465,46 @@ tap.test('different ports work works', function(t) {
 
 tap.test('different ports work work with Mikeal request', function(t) {
   var scope = nock('http://abc.portyyyy.com:8082')
-    .log(console.log)
     .get('/pathhh')
     .reply(200, "Welcome to Mikeal Request!");
 
   mikealRequest.get('http://abc.portyyyy.com:8082/pathhh', function(err, res, body) {
-    console.log(err);
     t.ok(! err, 'no error');
     t.equal(body, 'Welcome to Mikeal Request!');
     t.ok(scope.isDone());
     t.end();
   });
+});
+
+tap.test('explicitly specifiying port 80 works', function(t) {
+  var scope = nock('http://abc.portyyyy.com:80')
+    .get('/pathhh')
+    .reply(200, "Welcome, username");
+
+  http.request({
+    hostname: 'abc.portyyyy.com',
+    port: 80,
+    path: '/pathhh'
+  }, function(res) {
+    scope.done();
+    t.end();
+  }).end();
+});
+
+tap.test('post with object', function(t) {
+  var scope = nock('http://uri')
+    .post('/claim', {some_data: "something"})
+    .reply(200)
+    .log(console.log);
+
+  http.request({
+    hostname: 'uri',
+    port: 80,
+    method: "POST",
+    path: '/claim'
+  }, function(res) {
+    scope.done();
+    t.end();
+  }).end('{"some_data":"something"}');
+
 });
